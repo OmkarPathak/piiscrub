@@ -1,5 +1,5 @@
 [project]
-name = "cleanslate"
+name = "piiscrub"
 version = "0.1.0"
 description = "A blazing-fast, lightweight Python library and CLI tool designed to scrub Personally Identifiable Information (PII)"
 readme = "README.md"
@@ -10,7 +10,7 @@ authors = [
 dependencies = []
 
 [project.scripts]
-cleanslate = "cleanslate.cli:main"
+piiscrub = "piiscrub.cli:main"
 
 [build-system]
 requires = ["setuptools>=61.0"]

@@ -1,5 +1,5 @@
 """
-Core engine of CleanSlate. Provide classes and methods to scrub and extract PII.
+Core engine of PiiScrub. Provide classes and methods to scrub and extract PII.
 """
 from typing import Optional, List, Dict
 import re
@@ -13,46 +13,78 @@ _VALIDATORS = {
     "IN_AADHAAR": validate_aadhaar
 }
 
-class CleanSlate:
-    def __init__(self, entities: Optional[List[str]] = None):
+class PiiScrub:
+    def __init__(
+        self, 
+        entities: Optional[List[str]] = None,
+        custom_patterns: Optional[Dict[str, re.Pattern]] = None,
+        custom_validators: Optional[Dict[str, callable]] = None,
+        allowlist: Optional[List[str]] = None
+    ):
         """
-        Initialize CleanSlate engine.
+        Initialize PiiScrub engine.
         
         Args:
             entities: Optional list of entity names to process. If None, all are loaded.
+            custom_patterns: Optional dictionary mapping new entity names to compiled regex patterns.
+            custom_validators: Optional dictionary mapping entity names to validation functions returning bool.
+            allowlist: Optional list of exact strings to ignore (e.g., ["support@example.com"]).
         """
-        self.entities = entities if entities is not None else list(COMPILED_PATTERNS.keys())
+        self.allowlist = set(allowlist) if allowlist else set()
+        
+        # Merge default patterns with custom patterns
+        self.patterns = COMPILED_PATTERNS.copy()
+        if custom_patterns:
+            self.patterns.update(custom_patterns)
+            
+        # Merge default validators with custom validators
+        self.validators = _VALIDATORS.copy()
+        if custom_validators:
+            self.validators.update(custom_validators)
+            
+        self.entities = entities if entities is not None else list(self.patterns.keys())
         # Filter for only valid entity names
-        self.entities = [e for e in self.entities if e in COMPILED_PATTERNS]
+        self.entities = [e for e in self.entities if e in self.patterns]
 
     def _is_valid_match(self, entity_name: str, match_text: str) -> bool:
         """Check if the matched text passes the algorithmic checksums for the given entity."""
-        validator = _VALIDATORS.get(entity_name)
+        if match_text in self.allowlist:
+            return False
+            
+        validator = self.validators.get(entity_name)
         if validator:
             return validator(match_text)
         return True
 
     def scrub_text(self, text: str, replacement_style: str = "tag") -> str:
         """
-        Replace valid PII in the text with placeholders.
+        Replace valid PII in the text with placeholders or hashes.
         
         Args:
             text: Raw input text.
-            replacement_style: Either "tag" (e.g., <EMAIL>) or "redacted" (<REDACTED>).
+            replacement_style: "tag" (<EMAIL>), "redacted" (<REDACTED>), or "hash" (sha256 hex).
             
         Returns:
             Scrubbed text.
         """
+        import hashlib
         scrubbed_text = text
         for entity in self.entities:
-            pattern = COMPILED_PATTERNS[entity]
-            replacement = f"<{entity}>" if replacement_style == "tag" else "<REDACTED>"
+            pattern = self.patterns[entity]
             
             # Use a replace function that validates before replacing
             def replace_match(match):
                 match_text = match.group(0)
                 if self._is_valid_match(entity, match_text):
-                    return replacement
+                    if replacement_style == "hash":
+                        # Return an 8-character deterministic hash prefix to save tokens
+                        # but still allow matching identical entities in datasets.
+                        hashed = hashlib.sha256(match_text.encode('utf-8')).hexdigest()[:8]
+                        return f"<{entity}_{hashed}>"
+                    elif replacement_style == "redacted":
+                        return "<REDACTED>"
+                    else:
+                        return f"<{entity}>"
                 return match_text
                 
             scrubbed_text = pattern.sub(replace_match, scrubbed_text)
@@ -71,7 +103,7 @@ class CleanSlate:
         """
         found_entities = {}
         for entity in self.entities:
-            pattern = COMPILED_PATTERNS[entity]
+            pattern = self.patterns[entity]
             matches = pattern.findall(text)
             
             # findall might return tuples if there are capturing groups.
