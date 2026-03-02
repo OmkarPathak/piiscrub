@@ -11,6 +11,9 @@ _RAW_PATTERNS = {
     "IPV6": r"\b(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}\b",
     "IPV4": r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b",
     "EMAIL": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",
+    "AWS_ACCESS_KEY": r"\b(?:AKIA|ASIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}\b",
+    "GITHUB_TOKEN": r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{36}\b",
+    "RSA_PRIVATE_KEY": r"-----BEGIN (?:\w+ )?PRIVATE KEY-----[a-zA-Z0-9\+/\s=\n]+-----END (?:\w+ )?PRIVATE KEY-----",
     "PHONE_GENERIC": r"(?:(?:\+|00)\d{1,3}[\s-]?)?(?:\(?\d{2,4}\)?[\s-]?)?\d{3,4}[\s-]?\d{3,4}[\s-]?\d{2,4}\b",
 }
 

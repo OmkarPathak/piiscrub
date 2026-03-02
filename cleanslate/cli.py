@@ -28,6 +28,7 @@ def main():
     group.add_argument("--text", type=str, help="Raw text string to process")
     group.add_argument("--file", type=str, help="Path to text file to process")
     parent_parser.add_argument("--entities", type=str, nargs="+", help="Specific entities to target (e.g., EMAIL CREDIT_CARD)")
+    parent_parser.add_argument("--stream", action="store_true", help="Process the file chunk-by-chunk using a generator to avoid Out-Of-Memory errors on huge files.")
 
     # Extract subcommand
     parser_extract = subparsers.add_parser("extract", parents=[parent_parser], help="Extract PII entities from text")
@@ -38,19 +39,39 @@ def main():
 
     args = parser.parse_args()
 
-    # Read input
-    text = get_text_from_args(args)
-    
     # Initialize Core Engine
     cs = CleanSlate(entities=args.entities)
 
-    if args.command == "extract":
-        results = cs.extract_entities(text)
-        print(json.dumps(results, indent=2))
+    if args.stream and not args.file:
+        print("Error: --stream requires --file.", file=sys.stderr)
+        sys.exit(1)
+
+    if args.stream:
+        # Streaming logic for files
+        try:
+            with open(args.file, "r", encoding="utf-8") as f:
+                if args.command == "extract":
+                    results = cs.extract_stream(f)
+                    print(json.dumps(results, indent=2))
+                elif args.command == "scrub":
+                    for scrubbed_line in cs.scrub_stream(f, replacement_style=args.style):
+                        # scrub_text might preserve newlines if matching line by line, 
+                        # but typically f yields lines with \n attached
+                        sys.stdout.write(scrubbed_line)
+        except IOError as e:
+            print(f"Error reading file {args.file}: {e}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        # Traditional in-memory logic
+        text = get_text_from_args(args)
         
-    elif args.command == "scrub":
-        result = cs.scrub_text(text, replacement_style=args.style)
-        print(result)
+        if args.command == "extract":
+            results = cs.extract_entities(text)
+            print(json.dumps(results, indent=2))
+            
+        elif args.command == "scrub":
+            result = cs.scrub_text(text, replacement_style=args.style)
+            print(result)
 
 if __name__ == "__main__":
     main()

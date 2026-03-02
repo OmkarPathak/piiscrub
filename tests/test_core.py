@@ -59,5 +59,41 @@ class TestCoreEngine(unittest.TestCase):
         self.assertIn("IN_PAN", res)
         self.assertEqual(res["IN_PAN"], ["ABCDE1234F"])
 
+    def test_secret_detection(self):
+        text = "AWS: AKIAIOSFODNN7EXAMPLE GitHub: ghp_16C7e42k292c3938E2C849E2F19O3819A29e RSA: -----BEGIN PRIVATE KEY-----\nMIIEvAIBADAN\n-----END PRIVATE KEY-----"
+        res = self.cs.extract_entities(text)
+        
+        self.assertIn("AWS_ACCESS_KEY", res)
+        self.assertEqual(res["AWS_ACCESS_KEY"], ["AKIAIOSFODNN7EXAMPLE"])
+        
+        self.assertIn("GITHUB_TOKEN", res)
+        self.assertEqual(res["GITHUB_TOKEN"], ["ghp_16C7e42k292c3938E2C849E2F19O3819A29e"])
+        
+        self.assertIn("RSA_PRIVATE_KEY", res)
+        self.assertTrue(res["RSA_PRIVATE_KEY"][0].startswith("-----BEGIN PRIVATE KEY-----"))
+
+    def test_extract_stream(self):
+        lines = [
+            "Line 1 with email test@example.com",
+            "Line 2 with email support@example.com",
+            "Line 3 duplicate test@example.com"
+        ]
+        res = self.cs.extract_stream(iter(lines))
+        self.assertIn("EMAIL", res)
+        # Should deduplicate test@example.com
+        self.assertEqual(len(res["EMAIL"]), 2)
+        self.assertIn("test@example.com", res["EMAIL"])
+        self.assertIn("support@example.com", res["EMAIL"])
+
+    def test_scrub_stream(self):
+        lines = [
+            "Contact test@example.com",
+            "Or call +1-800-555-1234"
+        ]
+        scrubbed = list(self.cs.scrub_stream(iter(lines), replacement_style="tag"))
+        self.assertEqual(len(scrubbed), 2)
+        self.assertEqual(scrubbed[0], "Contact <EMAIL>")
+        self.assertIn("<PHONE_GENERIC>", scrubbed[1])
+
 if __name__ == "__main__":
     unittest.main()

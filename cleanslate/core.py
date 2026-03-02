@@ -93,3 +93,39 @@ class CleanSlate:
                 found_entities[entity] = valid_matches
                 
         return found_entities
+
+    def scrub_stream(self, file_iterator, replacement_style: str = "tag"):
+        """
+        Yields scrubbed lines from a file iterator to prevent OOM errors on large datasets.
+        
+        Args:
+            file_iterator: An iterator yielding lines of text (e.g., a file object).
+            replacement_style: Either "tag" (e.g., <EMAIL>) or "redacted" (<REDACTED>).
+            
+        Yields:
+            Scrubbed lines of text.
+        """
+        for line in file_iterator:
+            yield self.scrub_text(line, replacement_style=replacement_style)
+
+    def extract_stream(self, file_iterator) -> Dict[str, List[str]]:
+        """
+        Extract valid PII from a file iterator, aggregating results.
+        Automatically deduplicates results per entity to prevent memory blowup on large files.
+        
+        Args:
+            file_iterator: An iterator yielding lines of text.
+            
+        Returns:
+            A dictionary mapping entity names to a list of matched and validated strings.
+        """
+        found_entities = {}
+        for line in file_iterator:
+            line_entities = self.extract_entities(line)
+            for entity, matches in line_entities.items():
+                if entity not in found_entities:
+                    found_entities[entity] = set()
+                found_entities[entity].update(matches)
+                
+        # Convert sets back to lists for JSON serialization compatibility
+        return {k: list(v) for k, v in found_entities.items()}
