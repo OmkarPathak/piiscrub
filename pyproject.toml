@@ -1,0 +1,17 @@
+[project]
+name = "cleanslate"
+version = "0.1.0"
+description = "A blazing-fast, lightweight Python library and CLI tool designed to scrub Personally Identifiable Information (PII)"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    {name = "Omkar Pathak"},
+]
+dependencies = []
+
+[project.scripts]
+cleanslate = "cleanslate.cli:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
