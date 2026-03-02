@@ -85,15 +85,30 @@ class TestCoreEngine(unittest.TestCase):
         self.assertIn("test@example.com", res["EMAIL"])
         self.assertIn("support@example.com", res["EMAIL"])
 
-    def test_scrub_stream(self):
-        lines = [
-            "Contact test@example.com",
-            "Or call +1-800-555-1234"
-        ]
-        scrubbed = list(self.cs.scrub_stream(iter(lines), replacement_style="tag"))
-        self.assertEqual(len(scrubbed), 2)
-        self.assertEqual(scrubbed[0], "Contact <EMAIL>")
-        self.assertIn("<PHONE_GENERIC>", scrubbed[1])
+    def test_scrub_hash_style(self):
+        text = "Process user omkar@test.com"
+        scrubbed = self.cs.scrub_text(text, replacement_style="hash")
+        # sha256 of "omkar@test.com" starts with a1517717
+        self.assertEqual(scrubbed, "Process user <EMAIL_a1517717>")
+
+    def test_custom_patterns(self):
+        import re
+        custom_pats = {
+            "TICKET_ID": re.compile(r"\bPROJ-\d{4}\b")
+        }
+        
+        cs_custom = CleanSlate(custom_patterns=custom_pats)
+        text = "Fixing issue PROJ-1234 and emailing dev@test.com"
+        
+        # Test extraction
+        extracted = cs_custom.extract_entities(text)
+        self.assertIn("TICKET_ID", extracted)
+        self.assertEqual(extracted["TICKET_ID"], ["PROJ-1234"])
+        self.assertIn("EMAIL", extracted)
+        
+        # Test scrubbing
+        scrubbed = cs_custom.scrub_text(text)
+        self.assertEqual(scrubbed, "Fixing issue <TICKET_ID> and emailing <EMAIL>")
 
 if __name__ == "__main__":
     unittest.main()

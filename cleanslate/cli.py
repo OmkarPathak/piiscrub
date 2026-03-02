@@ -35,7 +35,7 @@ def main():
     
     # Scrub subcommand
     parser_scrub = subparsers.add_parser("scrub", parents=[parent_parser], help="Scrub PII entities from text")
-    parser_scrub.add_argument("--style", type=str, choices=["tag", "redacted"], default="tag", help="Replacement style: 'tag' (<EMAIL>) or 'redacted' (<REDACTED>)")
+    parser_scrub.add_argument("--style", type=str, choices=["tag", "redacted", "hash"], default="tag", help="Replacement style: 'tag' (<EMAIL>), 'redacted' (<REDACTED>), or 'hash' (<EMAIL_a1b2c3d4>)")
 
     args = parser.parse_args()
 
