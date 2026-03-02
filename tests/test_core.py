@@ -1,9 +1,9 @@
 import unittest
-from cleanslate.core import CleanSlate
+from piiscrub.core import PiiScrub
 
 class TestCoreEngine(unittest.TestCase):
     def setUp(self):
-        self.cs = CleanSlate()
+        self.cs = PiiScrub()
 
     def test_extract_email(self):
         text = "Contact us at test@example.com or support@example.co.uk."
@@ -97,7 +97,7 @@ class TestCoreEngine(unittest.TestCase):
             "TICKET_ID": re.compile(r"\bPROJ-\d{4}\b")
         }
         
-        cs_custom = CleanSlate(custom_patterns=custom_pats)
+        cs_custom = PiiScrub(custom_patterns=custom_pats)
         text = "Fixing issue PROJ-1234 and emailing dev@test.com"
         
         # Test extraction
@@ -107,8 +107,22 @@ class TestCoreEngine(unittest.TestCase):
         self.assertIn("EMAIL", extracted)
         
         # Test scrubbing
-        scrubbed = cs_custom.scrub_text(text)
-        self.assertEqual(scrubbed, "Fixing issue <TICKET_ID> and emailing <EMAIL>")
+    def test_allowlist(self):
+        allowlist = ["support@example.com", "4111   1111   1111   1111"]
+        cs_allow = PiiScrub(allowlist=allowlist)
+        
+        text = "Contact support@example.com or user@test.com. Card: 4111   1111   1111   1111"
+        
+        # Test extraction (should omit allowlisted items)
+        extracted = cs_allow.extract_entities(text)
+        self.assertIn("EMAIL", extracted)
+        self.assertEqual(len(extracted["EMAIL"]), 1)
+        self.assertEqual(extracted["EMAIL"][0], "user@test.com")
+        self.assertNotIn("CREDIT_CARD", extracted)
+        
+        # Test scrubbing (should leave allowlisted items intact)
+        scrubbed = cs_allow.scrub_text(text)
+        self.assertEqual(scrubbed, "Contact support@example.com or <EMAIL>. Card: 4111   1111   1111   1111")
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,5 +1,5 @@
 import unittest
-from cleanslate.validators import validate_credit_card, validate_ipv4, validate_aadhaar
+from piiscrub.validators import validate_credit_card, validate_ipv4, validate_aadhaar
 
 class TestValidators(unittest.TestCase):
     def test_validate_credit_card_valid(self):

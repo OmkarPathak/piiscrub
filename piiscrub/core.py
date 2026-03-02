@@ -1,5 +1,5 @@
 """
-Core engine of CleanSlate. Provide classes and methods to scrub and extract PII.
+Core engine of PiiScrub. Provide classes and methods to scrub and extract PII.
 """
 from typing import Optional, List, Dict
 import re
@@ -13,21 +13,25 @@ _VALIDATORS = {
     "IN_AADHAAR": validate_aadhaar
 }
 
-class CleanSlate:
+class PiiScrub:
     def __init__(
         self, 
         entities: Optional[List[str]] = None,
         custom_patterns: Optional[Dict[str, re.Pattern]] = None,
-        custom_validators: Optional[Dict[str, callable]] = None
+        custom_validators: Optional[Dict[str, callable]] = None,
+        allowlist: Optional[List[str]] = None
     ):
         """
-        Initialize CleanSlate engine.
+        Initialize PiiScrub engine.
         
         Args:
             entities: Optional list of entity names to process. If None, all are loaded.
             custom_patterns: Optional dictionary mapping new entity names to compiled regex patterns.
             custom_validators: Optional dictionary mapping entity names to validation functions returning bool.
+            allowlist: Optional list of exact strings to ignore (e.g., ["support@example.com"]).
         """
+        self.allowlist = set(allowlist) if allowlist else set()
+        
         # Merge default patterns with custom patterns
         self.patterns = COMPILED_PATTERNS.copy()
         if custom_patterns:
@@ -44,6 +48,9 @@ class CleanSlate:
 
     def _is_valid_match(self, entity_name: str, match_text: str) -> bool:
         """Check if the matched text passes the algorithmic checksums for the given entity."""
+        if match_text in self.allowlist:
+            return False
+            
         validator = self.validators.get(entity_name)
         if validator:
             return validator(match_text)
