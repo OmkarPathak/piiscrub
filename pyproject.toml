@@ -1,6 +1,6 @@
 [project]
 name = "piiscrub"
-version = "0.1.0"
+version = "0.1.1"
 description = "A blazing-fast, lightweight Python library and CLI tool designed to scrub Personally Identifiable Information (PII)"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -10,9 +10,31 @@ authors = [
 dependencies = [
     "faker",
 ]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Security",
+]
+keywords = ["pii", "scrub", "anonymization", "privacy", "llm", "rag"]
+
+[project.urls]
+Homepage = "https://github.com/OmkarPathak/cleanslate"
+Issues = "https://github.com/OmkarPathak/cleanslate/issues"
 
 [project.scripts]
 piiscrub = "piiscrub.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["piiscrub*"]
+exclude = ["tests*"]
 
 [build-system]
 requires = ["setuptools>=61.0"]

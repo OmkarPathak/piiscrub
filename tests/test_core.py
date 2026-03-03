@@ -183,6 +183,20 @@ class TestCoreEngine(unittest.TestCase):
         from piiscrub.patterns import COMPILED_PATTERNS
         self.assertEqual(len(cs_strict.entities), len(COMPILED_PATTERNS))
 
+    def test_nested_redaction_bug(self):
+        # Bug: <EMAIL_<PHONE_GENERIC_...>>
+        # This happened because EMAIL was replaced first, then PHONE_GENERIC matched the hash in the tag.
+        text = "omkar is my name, me email is omkarpathak27@gmail.com"
+        # Force hash style to trigger the exact reported scenario
+        scrubbed = self.cs.scrub_text(text, replacement_style="hash")
+        
+        # Ensure there are no double Open/Close brackets indicative of nested tags
+        self.assertNotIn("<<", scrubbed)
+        self.assertNotIn(">>", scrubbed)
+        # Ensure the expected tag format is preserved
+        self.assertIn("<EMAIL_", scrubbed)
+        self.assertNotIn("<PHONE_GENERIC_", scrubbed) # The hash shouldn't be matched as a phone number
+
 
 if __name__ == "__main__":
     unittest.main()

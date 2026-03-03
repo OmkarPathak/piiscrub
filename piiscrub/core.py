@@ -99,46 +99,75 @@ class PiiScrub:
 
     def scrub_text(self, text: str, replacement_style: str = "tag") -> str:
         """
-        Replace valid PII in the text with placeholders or hashes.
+        Replace valid PII in the text with placeholders or hashes in a single pass.
+        This prevents nested redaction tags (e.g., <EMAIL_<PHONE_...>>) by ensuring
+        each part of the text is replaced at most once.
         
         Args:
             text: Raw input text.
-            replacement_style: "tag" (<EMAIL>), "redacted" (<REDACTED>), or "hash" (sha256 hex).
+            replacement_style: "tag" (<EMAIL>), "redacted" (<REDACTED>), "hash" (sha256 hex), or "synthetic".
             
         Returns:
             Scrubbed text.
         """
         import hashlib
-        scrubbed_text = text
+        
+        # Collect all valid matches across all entities
+        all_matches = []
         for entity in self.entities:
             pattern = self.patterns[entity]
-            
-            # Use a replace function that validates before replacing
-            def replace_match(match):
+            for match in pattern.finditer(text):
                 match_text = match.group(0)
                 if self._is_valid_match(entity, match_text):
-                    # Increment stats
-                    self.stats[entity] = self.stats.get(entity, 0) + 1
-                    
-                    if replacement_style == "hash":
-                        # Return an 8-character deterministic hash prefix to save tokens
-                        # but still allow matching identical entities in datasets.
-                        hashed = hashlib.sha256(match_text.encode('utf-8')).hexdigest()[:8]
-                        return f"<{entity}_{hashed}>"
-                    elif replacement_style == "redacted":
-                        return "<REDACTED>"
-                    elif replacement_style == "synthetic" and self.fake:
-                        fake_method_name = _FAKER_MAPPING.get(entity)
-                        if fake_method_name and hasattr(self.fake, fake_method_name):
-                            return getattr(self.fake, fake_method_name)()
-                        return f"<{entity}_FAKE>"
-                    else:
-                        return f"<{entity}>"
-                return match_text
+                    all_matches.append({
+                        'start': match.start(),
+                        'end': match.end(),
+                        'entity': entity,
+                        'text': match_text
+                    })
+        
+        # Sort matches by start position, then by length (descending) 
+        # to prefer longer matches if they start at the same index.
+        all_matches.sort(key=lambda x: (x['start'], -(x['end'] - x['start'])))
+        
+        # Build the scrubbed text in a single pass
+        scrubbed_parts = []
+        last_index = 0
+        
+        for m in all_matches:
+            if m['start'] < last_index:
+                # Skip overlapping matches
+                continue
                 
-            scrubbed_text = pattern.sub(replace_match, scrubbed_text)
+            # Append text before the match
+            scrubbed_parts.append(text[last_index:m['start']])
             
-        return scrubbed_text
+            # Record stat
+            self.stats[m['entity']] = self.stats.get(m['entity'], 0) + 1
+            
+            # Generate replacement
+            replacement = ""
+            if replacement_style == "hash":
+                hashed = hashlib.sha256(m['text'].encode('utf-8')).hexdigest()[:8]
+                replacement = f"<{m['entity']}_{hashed}>"
+            elif replacement_style == "redacted":
+                replacement = "<REDACTED>"
+            elif replacement_style == "synthetic" and self.fake:
+                fake_method_name = _FAKER_MAPPING.get(m['entity'])
+                if fake_method_name and hasattr(self.fake, fake_method_name):
+                    replacement = str(getattr(self.fake, fake_method_name)())
+                else:
+                    replacement = f"<{m['entity']}_FAKE>"
+            else:
+                replacement = f"<{m['entity']}>"
+            
+            scrubbed_parts.append(replacement)
+            last_index = m['end']
+            
+        # Append remaining text
+        scrubbed_parts.append(text[last_index:])
+        
+        return "".join(scrubbed_parts)
 
     def extract_entities(self, text: str) -> Dict[str, List[str]]:
         """
