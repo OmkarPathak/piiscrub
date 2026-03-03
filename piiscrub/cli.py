@@ -49,6 +49,8 @@ def main():
     parent_parser.add_argument("--config", type=str, help="Path to piiscrub.json configuration file.")
     parent_parser.add_argument("--report", type=str, help="Path to save the JSON audit report.")
     parent_parser.add_argument("--profile", type=str, help="Compliance profile to use (e.g., pci-dss, hipaa, gdpr, strict)")
+    parent_parser.add_argument("--json-key", type=str, nargs="+", help="Specific JSON keys to target for scrubbing.")
+    parent_parser.add_argument("--csv-column", type=str, nargs="+", help="Specific CSV columns to target for scrubbing.")
 
     # Extract subcommand
     parser_extract = subparsers.add_parser("extract", parents=[parent_parser], help="Extract PII entities from text")
@@ -150,7 +152,23 @@ def main():
             print(json.dumps(results, indent=2))
             
         elif args.command == "scrub":
-            result = cs.scrub_text(text, replacement_style=style)
+            # Detect file type for structured scrubbing
+            file_ext = os.path.splitext(args.file)[1].lower() if args.file else None
+            
+            if file_ext == ".json" and args.json_key:
+                try:
+                    data = json.loads(text)
+                    scrubbed_data = cs.scrub_json(data, keys_to_scrub=args.json_key, replacement_style=style)
+                    result = json.dumps(scrubbed_data, indent=2)
+                except json.JSONDecodeError as e:
+                    print(f"Error decoding JSON: {e}", file=sys.stderr)
+                    sys.exit(1)
+            elif file_ext == ".csv" and args.csv_column:
+                f_iter = text.splitlines()
+                result = "".join(cs.scrub_csv(f_iter, columns_to_scrub=args.csv_column, replacement_style=style))
+            else:
+                result = cs.scrub_text(text, replacement_style=style)
+
             if args.output:
                 with open(args.output, "w", encoding="utf-8") as f_out:
                     f_out.write(result)

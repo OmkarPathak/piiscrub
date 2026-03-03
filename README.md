@@ -137,6 +137,17 @@ piiscrub scrub --file sensitive_data.txt --report audit.json
 }
 ```
 
+#### 5. Structured Data Support (JSON & CSV)
+Target specific fields in structured files to preserve the format while scrubbing PII.
+
+```bash
+# Scrub only specific keys in a JSON file
+piiscrub scrub --file data.json --json-key email secret
+
+# Scrub only specific columns in a CSV file
+piiscrub scrub --file data.csv --csv-column phone email
+```
+
 ### Stream Processing
 For extremely large files (e.g. LLM corpus data logs):
 ```bash

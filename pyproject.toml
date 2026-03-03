@@ -1,6 +1,6 @@
 [project]
 name = "piiscrub"
-version = "0.1.1"
+version = "0.1.2"
 description = "A blazing-fast, lightweight Python library and CLI tool designed to scrub Personally Identifiable Information (PII)"
 readme = "README.md"
 requires-python = ">=3.9"
