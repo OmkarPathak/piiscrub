@@ -69,6 +69,15 @@ class PiiScrub:
         self.entities = entities if entities is not None else list(self.patterns.keys())
         # Filter for only valid entity names
         self.entities = [e for e in self.entities if e in self.patterns]
+        self.stats = {}
+
+    def get_stats(self) -> Dict[str, int]:
+        """Return the current redaction statistics."""
+        return self.stats
+
+    def reset_stats(self):
+        """Reset the redaction statistics."""
+        self.stats = {}
 
     def _is_valid_match(self, entity_name: str, match_text: str) -> bool:
         """Check if the matched text passes the algorithmic checksums for the given entity."""
@@ -100,6 +109,9 @@ class PiiScrub:
             def replace_match(match):
                 match_text = match.group(0)
                 if self._is_valid_match(entity, match_text):
+                    # Increment stats
+                    self.stats[entity] = self.stats.get(entity, 0) + 1
+                    
                     if replacement_style == "hash":
                         # Return an 8-character deterministic hash prefix to save tokens
                         # but still allow matching identical entities in datasets.
@@ -149,6 +161,8 @@ class PiiScrub:
                     
                 if self._is_valid_match(entity, match_str):
                     valid_matches.append(match_str)
+                    # Increment stats
+                    self.stats[entity] = self.stats.get(entity, 0) + 1
                     
             if valid_matches:
                 found_entities[entity] = valid_matches
@@ -223,9 +237,14 @@ class PiiScrub:
                     futures.append(executor.submit(_process_chunk, self, chunk, replacement_style))
                 
                 for future in futures:
-                    scrubbed_lines = future.result()
+                    scrubbed_lines, chunk_stats = future.result()
                     f_out.writelines(scrubbed_lines)
+                    # Aggregate stats from workers
+                    for entity, count in chunk_stats.items():
+                        self.stats[entity] = self.stats.get(entity, 0) + count
 
-def _process_chunk(engine: PiiScrub, chunk: List[str], replacement_style: str) -> List[str]:
+def _process_chunk(engine: PiiScrub, chunk: List[str], replacement_style: str) -> tuple[List[str], Dict[str, int]]:
     """Helper function for parallel processing (must be at top level for pickling)."""
-    return [engine.scrub_text(line, replacement_style=replacement_style) for line in chunk]
+    engine.reset_stats()
+    processed = [engine.scrub_text(line, replacement_style=replacement_style) for line in chunk]
+    return processed, engine.get_stats()

@@ -3,6 +3,7 @@ import sys
 import re
 import json
 import os
+import time
 from piiscrub.core import PiiScrub
 
 def get_text_from_args(args) -> str:
@@ -46,6 +47,7 @@ def main():
     parent_parser.add_argument("--stream", action="store_true", help="Process the file chunk-by-chunk.")
     parent_parser.add_argument("--parallel", action="store_true", help="Process the file in parallel using multiple cores.")
     parent_parser.add_argument("--config", type=str, help="Path to piiscrub.json configuration file.")
+    parent_parser.add_argument("--report", type=str, help="Path to save the JSON audit report.")
 
     # Extract subcommand
     parser_extract = subparsers.add_parser("extract", parents=[parent_parser], help="Extract PII entities from text")
@@ -96,10 +98,25 @@ def main():
         print("Error: --stream or --parallel requires --file.", file=sys.stderr)
         sys.exit(1)
 
+    start_time = time.time()
+    total_lines = 0
+
     if parallel and args.command == "scrub":
         output_path = args.output or (args.file + ".scrubbed")
         print(f"Processing in parallel... saving to {output_path}")
         cs.scrub_file_parallel(args.file, output_path, replacement_style=style)
+        # We can count lines by reading the file or getting it from parallel scrub (if we update it)
+        # For now, let's keep it simple and just report execution time and entities
+        execution_time = time.time() - start_time
+        if args.report:
+            report = {
+                "command": args.command,
+                "execution_time_seconds": round(execution_time, 4),
+                "entities_redacted": cs.get_stats(),
+                "style": style
+            }
+            with open(args.report, "w", encoding="utf-8") as f_rep:
+                json.dump(report, f_rep, indent=4)
         return
 
     if args.stream:
@@ -111,6 +128,7 @@ def main():
                     print(json.dumps(results, indent=2))
                 elif args.command == "scrub":
                     for scrubbed_line in cs.scrub_stream(f, replacement_style=style):
+                        total_lines += 1
                         if args.output:
                             with open(args.output, "a", encoding="utf-8") as f_out:
                                 f_out.write(scrubbed_line)
@@ -122,6 +140,7 @@ def main():
     else:
         # Traditional in-memory logic
         text = get_text_from_args(args)
+        total_lines = len(text.splitlines())
         
         if args.command == "extract":
             results = cs.extract_entities(text)
@@ -134,6 +153,20 @@ def main():
                     f_out.write(result)
             else:
                 print(result)
+
+    execution_time = time.time() - start_time
+    if args.report:
+        report = {
+            "command": args.command,
+            "total_lines_processed": total_lines,
+            "execution_time_seconds": round(execution_time, 4),
+            "entities_found" if args.command == "extract" else "entities_redacted": cs.get_stats(),
+        }
+        if args.command == "scrub":
+            report["style"] = style
+            
+        with open(args.report, "w", encoding="utf-8") as f_rep:
+            json.dump(report, f_rep, indent=4)
 
 if __name__ == "__main__":
     main()

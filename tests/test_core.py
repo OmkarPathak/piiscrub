@@ -154,6 +154,18 @@ class TestCoreEngine(unittest.TestCase):
             if os.path.exists(input_path): os.remove(input_path)
             if os.path.exists(output_path): os.remove(output_path)
 
+    def test_metrics_tracking(self):
+        self.cs.reset_stats()
+        text = "Emails: a@b.com, c@d.com. Card: 4111 1111 1111 1111"
+        self.cs.scrub_text(text)
+        stats = self.cs.get_stats()
+        self.assertEqual(stats.get("EMAIL"), 2)
+        self.assertEqual(stats.get("CREDIT_CARD"), 1)
+        
+        # Test reset
+        self.cs.reset_stats()
+        self.assertEqual(self.cs.get_stats(), {})
+
 
 if __name__ == "__main__":
     unittest.main()
