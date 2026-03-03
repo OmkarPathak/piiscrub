@@ -7,7 +7,9 @@ requires-python = ">=3.9"
 authors = [
     {name = "Omkar Pathak"},
 ]
-dependencies = []
+dependencies = [
+    "faker",
+]
 
 [project.scripts]
 piiscrub = "piiscrub.cli:main"

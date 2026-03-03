@@ -1,16 +1,35 @@
 """
 Core engine of PiiScrub. Provide classes and methods to scrub and extract PII.
 """
-from typing import Optional, List, Dict
 import re
+import hashlib
+from typing import Optional, List, Dict, Generator
+from concurrent.futures import ProcessPoolExecutor
+import multiprocessing
 from .patterns import COMPILED_PATTERNS
 from .validators import validate_credit_card, validate_ipv4, validate_aadhaar
+
+try:
+    from faker import Faker
+except ImportError:
+    Faker = None
 
 # Map entities to their specific validation functions
 _VALIDATORS = {
     "CREDIT_CARD": validate_credit_card,
     "IPV4": validate_ipv4,
     "IN_AADHAAR": validate_aadhaar
+}
+
+# Map entities to Faker methods
+_FAKER_MAPPING = {
+    "EMAIL": "email",
+    "PHONE_GENERIC": "phone_number",
+    "CREDIT_CARD": "credit_card_number",
+    "IPV4": "ipv4",
+    "IPV6": "ipv6",
+    "US_SSN": "ssn",
+    "IN_AADHAAR": "aadhaar_id", # Requires Faker-ID locale or similar, fallback to random if not available
 }
 
 class PiiScrub:
@@ -31,6 +50,11 @@ class PiiScrub:
             allowlist: Optional list of exact strings to ignore (e.g., ["support@example.com"]).
         """
         self.allowlist = set(allowlist) if allowlist else set()
+        
+        if Faker:
+            self.fake = Faker()
+        else:
+            self.fake = None
         
         # Merge default patterns with custom patterns
         self.patterns = COMPILED_PATTERNS.copy()
@@ -83,6 +107,11 @@ class PiiScrub:
                         return f"<{entity}_{hashed}>"
                     elif replacement_style == "redacted":
                         return "<REDACTED>"
+                    elif replacement_style == "synthetic" and self.fake:
+                        fake_method_name = _FAKER_MAPPING.get(entity)
+                        if fake_method_name and hasattr(self.fake, fake_method_name):
+                            return getattr(self.fake, fake_method_name)()
+                        return f"<{entity}_FAKE>"
                     else:
                         return f"<{entity}>"
                 return match_text
@@ -159,5 +188,44 @@ class PiiScrub:
                     found_entities[entity] = set()
                 found_entities[entity].update(matches)
                 
-        # Convert sets back to lists for JSON serialization compatibility
+    # Convert sets back to lists for JSON serialization compatibility
         return {k: list(v) for k, v in found_entities.items()}
+
+    def scrub_file_parallel(
+        self, 
+        input_path: str, 
+        output_path: str, 
+        replacement_style: str = "tag", 
+        n_cores: Optional[int] = None,
+        chunk_size: int = 1000
+    ):
+        """
+        Scrub a large file in parallel using multiple cores.
+        """
+        if n_cores is None:
+            n_cores = multiprocessing.cpu_count()
+
+        with open(input_path, 'r', encoding='utf-8') as f_in, \
+             open(output_path, 'w', encoding='utf-8') as f_out:
+            
+            with ProcessPoolExecutor(max_workers=n_cores) as executor:
+                # We process the file in chunks to balance memory and parallelism
+                chunk = []
+                futures = []
+                
+                for line in f_in:
+                    chunk.append(line)
+                    if len(chunk) >= chunk_size:
+                        futures.append(executor.submit(_process_chunk, self, chunk, replacement_style))
+                        chunk = []
+                
+                if chunk:
+                    futures.append(executor.submit(_process_chunk, self, chunk, replacement_style))
+                
+                for future in futures:
+                    scrubbed_lines = future.result()
+                    f_out.writelines(scrubbed_lines)
+
+def _process_chunk(engine: PiiScrub, chunk: List[str], replacement_style: str) -> List[str]:
+    """Helper function for parallel processing (must be at top level for pickling)."""
+    return [engine.scrub_text(line, replacement_style=replacement_style) for line in chunk]
