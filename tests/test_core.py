@@ -13,6 +13,15 @@ class TestCoreEngine(unittest.TestCase):
         self.assertIn("test@example.com", res["EMAIL"])
         self.assertIn("support@example.co.uk", res["EMAIL"])
 
+    def test_synthetic_style(self):
+        text = "Contact me at test@example.com"
+        # Since Faker is unpredictable but follows patterns, we just check it's not the original or a generic tag
+        scrubbed = self.cs.scrub_text(text, replacement_style="synthetic")
+        self.assertNotIn("test@example.com", scrubbed)
+        self.assertNotIn("<EMAIL>", scrubbed)
+        self.assertIn("@", scrubbed) # For EMAIL, Faker should still return something with @
+
+
     def test_scrub_email(self):
         text = "My email is test@example.com"
         scrubbed_tag = self.cs.scrub_text(text, replacement_style="tag")
@@ -123,6 +132,40 @@ class TestCoreEngine(unittest.TestCase):
         # Test scrubbing (should leave allowlisted items intact)
         scrubbed = cs_allow.scrub_text(text)
         self.assertEqual(scrubbed, "Contact support@example.com or <EMAIL>. Card: 4111   1111   1111   1111")
+
+    def test_scrub_file_parallel(self):
+        import tempfile
+        import os
+        
+        content = "User test@example.com with phone 123-456-7890\n" * 10
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f_in:
+            f_in.write(content)
+            input_path = f_in.name
+            
+        output_path = input_path + ".scrubbed"
+        try:
+            self.cs.scrub_file_parallel(input_path, output_path, replacement_style="tag", n_cores=2)
+            with open(output_path, 'r') as f_out:
+                scrubbed_content = f_out.read()
+                self.assertIn("<EMAIL>", scrubbed_content)
+                self.assertIn("<PHONE_GENERIC>", scrubbed_content)
+                self.assertNotIn("test@example.com", scrubbed_content)
+        finally:
+            if os.path.exists(input_path): os.remove(input_path)
+            if os.path.exists(output_path): os.remove(output_path)
+
+    def test_metrics_tracking(self):
+        self.cs.reset_stats()
+        text = "Emails: a@b.com, c@d.com. Card: 4111 1111 1111 1111"
+        self.cs.scrub_text(text)
+        stats = self.cs.get_stats()
+        self.assertEqual(stats.get("EMAIL"), 2)
+        self.assertEqual(stats.get("CREDIT_CARD"), 1)
+        
+        # Test reset
+        self.cs.reset_stats()
+        self.assertEqual(self.cs.get_stats(), {})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -8,8 +8,12 @@ A blazing-fast, lightweight Python library and CLI tool designed to scrub Person
 - **Deterministic Validation:** Raw regex matches for high-risk entities (like credit cards and IPs) pass algorithmic checksums (e.g., Luhn algorithm, octet range checks) before being flagged to eliminate false positives.
 - **Pre-compiled Regex:** All regular expressions are compiled at the module level using `re.compile()` for O(1) setup time during execution.
 - **Large Dataset Streaming:** Features `scrub_stream` and `extract_stream` to process massive datasets chunk-by-chunk without hitting Out-Of-Memory limit.
+- **Multi-Core Parallel Processing:** Leverage multiple CPU cores to scrub large files at blazing speed using `--parallel`.
+- **Compliance Auditing & Metric Reports:** Generate detailed JSON reports with statistics on redacted entities and execution time using `--report`.
 - **High-Value Secret Detection:** Added parsing to locate critical assets like AWS Access Keys, GitHub Tokens, and RSA Private Keys out of the box.
 - **Deterministic Hashing:** Replace PII with deterministic SHA-256 hashes instead of generic tags to track uniqueness without leaking data.
+- **Synthetic Data Generation:** Replace real PII with realistic "fake" data using the `faker` library (beta).
+- **Configuration File Support:** Manage complex settings via `piiscrub.json` instead of long CLI commands.
 - **Custom Pattern Injection:** Dynamically inject your own regex patterns and validators directly into the engine without modifying the core library.
 - **Allowlist Support:** Explicitly bypass scrubbing for public figures, system emails, or company identifiers to prevent false positives.
 
@@ -61,6 +65,62 @@ piiscrub scrub --text "Contact support@example.com or user@example.com" --allowl
 # Inject Custom Pattern from the CLI
 piiscrub scrub --text "This is employee EMP-99881 and email a@b.com" --custom-pattern EMP_ID "\bEMP-\d{5}\b" --entities EMP_ID EMAIL
 # Output: This is employee <EMP_ID> and email <EMAIL>
+
+# Synthetic Data Generation
+piiscrub scrub --text "Contact me at omkar@example.com" --style synthetic
+# Output: Contact me at victoria12@gmail.com
+```
+
+### Advanced Features
+
+#### 1. Configuration File (`piiscrub.json`)
+You can define a `piiscrub.json` file in your working directory to simplify your commands:
+
+```json
+{
+    "style": "hash",
+    "entities": ["EMAIL", "PHONE_GENERIC"],
+    "allowlist": ["support@mycompany.com"],
+    "custom_patterns": {
+        "ORDER_ID": "ORD-\\d{5}"
+    }
+}
+```
+
+Now just run:
+```bash
+piiscrub scrub --file data.txt
+```
+
+#### 2. Parallel Processing
+For large files, use multi-core processing:
+
+```bash
+piiscrub scrub --file large_dataset.txt --parallel --output cleaned.txt
+```
+> [!TIP]
+> Parallel mode automatically handles file I/O efficiently and defaults to using all available CPU cores.
+
+#### 3. Compliance Auditing & Metric Reports
+Data compliance teams can generate a statistical summary of the scrubbing process as proof of redaction:
+
+```bash
+piiscrub scrub --file sensitive_data.txt --report audit.json
+```
+
+**Sample `audit.json` output:**
+```json
+{
+    "command": "scrub",
+    "total_lines_processed": 5000,
+    "execution_time_seconds": 1.25,
+    "entities_redacted": {
+        "EMAIL": 142,
+        "CREDIT_CARD": 12,
+        "PHONE_GENERIC": 5
+    },
+    "style": "tag"
+}
 ```
 
 ### Stream Processing
