@@ -9,6 +9,7 @@ A blazing-fast, lightweight Python library and CLI tool designed to scrub Person
 - **Pre-compiled Regex:** All regular expressions are compiled at the module level using `re.compile()` for O(1) setup time during execution.
 - **Large Dataset Streaming:** Features `scrub_stream` and `extract_stream` to process massive datasets chunk-by-chunk without hitting Out-Of-Memory limit.
 - **Multi-Core Parallel Processing:** Leverage multiple CPU cores to scrub large files at blazing speed using `--parallel`.
+- **Pre-Bundled Compliance Profiles:** Quickly target specific standards like `hipaa`, `pci-dss`, or `gdpr` using the `--profile` flag.
 - **Compliance Auditing & Metric Reports:** Generate detailed JSON reports with statistics on redacted entities and execution time using `--report`.
 - **High-Value Secret Detection:** Added parsing to locate critical assets like AWS Access Keys, GitHub Tokens, and RSA Private Keys out of the box.
 - **Deterministic Hashing:** Replace PII with deterministic SHA-256 hashes instead of generic tags to track uniqueness without leaking data.
@@ -101,7 +102,20 @@ piiscrub scrub --file large_dataset.txt --parallel --output cleaned.txt
 > [!TIP]
 > Parallel mode automatically handles file I/O efficiently and defaults to using all available CPU cores.
 
-#### 3. Compliance Auditing & Metric Reports
+#### 3. Pre-Bundled Compliance Profiles
+Quickly target common privacy standards without remembering every entity name:
+
+```bash
+# Scrub only PCI-DSS related data (Credit Cards)
+piiscrub scrub --file transactions.txt --profile pci-dss
+
+# Scrub HIPAA related data (SSN, Phone, Email, IP)
+piiscrub scrub --file medical_records.txt --profile hipaa
+```
+
+Available profiles: `pci-dss`, `hipaa`, `gdpr`, `strict`.
+
+#### 4. Compliance Auditing & Metric Reports
 Data compliance teams can generate a statistical summary of the scrubbing process as proof of redaction:
 
 ```bash

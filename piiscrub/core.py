@@ -36,6 +36,7 @@ class PiiScrub:
     def __init__(
         self, 
         entities: Optional[List[str]] = None,
+        profile: Optional[str] = None,
         custom_patterns: Optional[Dict[str, re.Pattern]] = None,
         custom_validators: Optional[Dict[str, callable]] = None,
         allowlist: Optional[List[str]] = None
@@ -45,6 +46,7 @@ class PiiScrub:
         
         Args:
             entities: Optional list of entity names to process. If None, all are loaded.
+            profile: Optional pre-bundled compliance profile name (e.g., "pci-dss", "hipaa").
             custom_patterns: Optional dictionary mapping new entity names to compiled regex patterns.
             custom_validators: Optional dictionary mapping entity names to validation functions returning bool.
             allowlist: Optional list of exact strings to ignore (e.g., ["support@example.com"]).
@@ -66,7 +68,13 @@ class PiiScrub:
         if custom_validators:
             self.validators.update(custom_validators)
             
-        self.entities = entities if entities is not None else list(self.patterns.keys())
+        from .profiles import COMPLIANCE_PROFILES
+        if profile and profile in COMPLIANCE_PROFILES:
+            profile_entities = COMPLIANCE_PROFILES[profile]
+            self.entities = profile_entities if profile_entities is not None else list(self.patterns.keys())
+        else:
+            self.entities = entities if entities is not None else list(self.patterns.keys())
+            
         # Filter for only valid entity names
         self.entities = [e for e in self.entities if e in self.patterns]
         self.stats = {}

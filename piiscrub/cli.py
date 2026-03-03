@@ -48,6 +48,7 @@ def main():
     parent_parser.add_argument("--parallel", action="store_true", help="Process the file in parallel using multiple cores.")
     parent_parser.add_argument("--config", type=str, help="Path to piiscrub.json configuration file.")
     parent_parser.add_argument("--report", type=str, help="Path to save the JSON audit report.")
+    parent_parser.add_argument("--profile", type=str, help="Compliance profile to use (e.g., pci-dss, hipaa, gdpr, strict)")
 
     # Extract subcommand
     parser_extract = subparsers.add_parser("extract", parents=[parent_parser], help="Extract PII entities from text")
@@ -66,6 +67,7 @@ def main():
     entities = args.entities or config.get("entities")
     allowlist = args.allowlist or config.get("allowlist")
     parallel = args.parallel or config.get("parallel", False)
+    profile = args.profile or config.get("profile")
     style = (getattr(args, "style", None) or config.get("style", "tag"))
 
     # Process custom patterns from CLI
@@ -90,6 +92,7 @@ def main():
     # Initialize Core Engine
     cs = PiiScrub(
         entities=entities, 
+        profile=profile,
         allowlist=allowlist,
         custom_patterns=custom_patterns_dict if custom_patterns_dict else None
     )

@@ -166,6 +166,23 @@ class TestCoreEngine(unittest.TestCase):
         self.cs.reset_stats()
         self.assertEqual(self.cs.get_stats(), {})
 
+    def test_compliance_profiles(self):
+        # PCI-DSS should only have CREDIT_CARD
+        cs_pci = PiiScrub(profile="pci-dss")
+        self.assertEqual(cs_pci.entities, ["CREDIT_CARD"])
+        
+        # HIPAA should have several entities
+        cs_hipaa = PiiScrub(profile="hipaa")
+        expected_hipaa = ["US_SSN", "EMAIL", "PHONE_GENERIC", "IPV4", "IPV6"]
+        for entity in expected_hipaa:
+            self.assertIn(entity, cs_hipaa.entities)
+        self.assertEqual(len(cs_hipaa.entities), len(expected_hipaa))
+        
+        # Strict should have all entities
+        cs_strict = PiiScrub(profile="strict")
+        from piiscrub.patterns import COMPILED_PATTERNS
+        self.assertEqual(len(cs_strict.entities), len(COMPILED_PATTERNS))
+
 
 if __name__ == "__main__":
     unittest.main()
