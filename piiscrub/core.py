@@ -3,7 +3,10 @@ Core engine of PiiScrub. Provide classes and methods to scrub and extract PII.
 """
 import re
 import hashlib
-from typing import Optional, List, Dict, Generator
+import json
+import csv
+import io
+from typing import Optional, List, Dict, Generator, Any, Union
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing
 from .patterns import COMPILED_PATTERNS
@@ -36,6 +39,7 @@ class PiiScrub:
     def __init__(
         self, 
         entities: Optional[List[str]] = None,
+        profile: Optional[str] = None,
         custom_patterns: Optional[Dict[str, re.Pattern]] = None,
         custom_validators: Optional[Dict[str, callable]] = None,
         allowlist: Optional[List[str]] = None
@@ -45,6 +49,7 @@ class PiiScrub:
         
         Args:
             entities: Optional list of entity names to process. If None, all are loaded.
+            profile: Optional pre-bundled compliance profile name (e.g., "pci-dss", "hipaa").
             custom_patterns: Optional dictionary mapping new entity names to compiled regex patterns.
             custom_validators: Optional dictionary mapping entity names to validation functions returning bool.
             allowlist: Optional list of exact strings to ignore (e.g., ["support@example.com"]).
@@ -66,7 +71,13 @@ class PiiScrub:
         if custom_validators:
             self.validators.update(custom_validators)
             
-        self.entities = entities if entities is not None else list(self.patterns.keys())
+        from .profiles import COMPLIANCE_PROFILES
+        if profile and profile in COMPLIANCE_PROFILES:
+            profile_entities = COMPLIANCE_PROFILES[profile]
+            self.entities = profile_entities if profile_entities is not None else list(self.patterns.keys())
+        else:
+            self.entities = entities if entities is not None else list(self.patterns.keys())
+            
         # Filter for only valid entity names
         self.entities = [e for e in self.entities if e in self.patterns]
         self.stats = {}
@@ -91,46 +102,125 @@ class PiiScrub:
 
     def scrub_text(self, text: str, replacement_style: str = "tag") -> str:
         """
-        Replace valid PII in the text with placeholders or hashes.
+        Replace valid PII in the text with placeholders or hashes in a single pass.
+        This prevents nested redaction tags (e.g., <EMAIL_<PHONE_...>>) by ensuring
+        each part of the text is replaced at most once.
         
         Args:
             text: Raw input text.
-            replacement_style: "tag" (<EMAIL>), "redacted" (<REDACTED>), or "hash" (sha256 hex).
+            replacement_style: "tag" (<EMAIL>), "redacted" (<REDACTED>), "hash" (sha256 hex), or "synthetic".
             
         Returns:
             Scrubbed text.
         """
         import hashlib
-        scrubbed_text = text
+        
+        # Collect all valid matches across all entities
+        all_matches = []
         for entity in self.entities:
             pattern = self.patterns[entity]
-            
-            # Use a replace function that validates before replacing
-            def replace_match(match):
+            for match in pattern.finditer(text):
                 match_text = match.group(0)
                 if self._is_valid_match(entity, match_text):
-                    # Increment stats
-                    self.stats[entity] = self.stats.get(entity, 0) + 1
-                    
-                    if replacement_style == "hash":
-                        # Return an 8-character deterministic hash prefix to save tokens
-                        # but still allow matching identical entities in datasets.
-                        hashed = hashlib.sha256(match_text.encode('utf-8')).hexdigest()[:8]
-                        return f"<{entity}_{hashed}>"
-                    elif replacement_style == "redacted":
-                        return "<REDACTED>"
-                    elif replacement_style == "synthetic" and self.fake:
-                        fake_method_name = _FAKER_MAPPING.get(entity)
-                        if fake_method_name and hasattr(self.fake, fake_method_name):
-                            return getattr(self.fake, fake_method_name)()
-                        return f"<{entity}_FAKE>"
-                    else:
-                        return f"<{entity}>"
-                return match_text
+                    all_matches.append({
+                        'start': match.start(),
+                        'end': match.end(),
+                        'entity': entity,
+                        'text': match_text
+                    })
+        
+        # Sort matches by start position, then by length (descending) 
+        # to prefer longer matches if they start at the same index.
+        all_matches.sort(key=lambda x: (x['start'], -(x['end'] - x['start'])))
+        
+        # Build the scrubbed text in a single pass
+        scrubbed_parts = []
+        last_index = 0
+        
+        for m in all_matches:
+            if m['start'] < last_index:
+                # Skip overlapping matches
+                continue
                 
-            scrubbed_text = pattern.sub(replace_match, scrubbed_text)
+            # Append text before the match
+            scrubbed_parts.append(text[last_index:m['start']])
             
-        return scrubbed_text
+            # Record stat
+            self.stats[m['entity']] = self.stats.get(m['entity'], 0) + 1
+            
+            # Generate replacement
+            replacement = ""
+            if replacement_style == "hash":
+                hashed = hashlib.sha256(m['text'].encode('utf-8')).hexdigest()[:8]
+                replacement = f"<{m['entity']}_{hashed}>"
+            elif replacement_style == "redacted":
+                replacement = "<REDACTED>"
+            elif replacement_style == "synthetic" and self.fake:
+                fake_method_name = _FAKER_MAPPING.get(m['entity'])
+                if fake_method_name and hasattr(self.fake, fake_method_name):
+                    replacement = str(getattr(self.fake, fake_method_name)())
+                else:
+                    replacement = f"<{m['entity']}_FAKE>"
+            else:
+                replacement = f"<{m['entity']}>"
+            
+            scrubbed_parts.append(replacement)
+            last_index = m['end']
+            
+        # Append remaining text
+        scrubbed_parts.append(text[last_index:])
+        
+        return "".join(scrubbed_parts)
+
+    def scrub_json(self, data: Any, keys_to_scrub: Optional[List[str]] = None, replacement_style: str = "tag") -> Any:
+        """
+        Recursively scrub PII from a JSON-like object (dict or list).
+        If keys_to_scrub is provided, only those keys are targeted.
+        Otherwise, all string values are scrubbed.
+        """
+        if isinstance(data, dict):
+            new_dict = {}
+            for k, v in data.items():
+                if keys_to_scrub is None or k in keys_to_scrub:
+                    new_dict[k] = self.scrub_json(v, keys_to_scrub=None, replacement_style=replacement_style)
+                else:
+                    new_dict[k] = self.scrub_json(v, keys_to_scrub=keys_to_scrub, replacement_style=replacement_style)
+            return new_dict
+        elif isinstance(data, list):
+            return [self.scrub_json(item, keys_to_scrub=keys_to_scrub, replacement_style=replacement_style) for item in data]
+        elif isinstance(data, str):
+            if keys_to_scrub is None:
+                return self.scrub_text(data, replacement_style=replacement_style)
+            return data
+        else:
+            return data
+
+    def scrub_csv(self, file_iterator, columns_to_scrub: List[str], replacement_style: str = "tag") -> Generator[str, None, None]:
+        """
+        Scrub specific columns in a CSV file.
+        Yields scrubbed rows as CSV strings.
+        """
+        reader = csv.DictReader(file_iterator)
+        fieldnames = reader.fieldnames
+        if not fieldnames:
+            return
+
+        # Yield header
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+        yield output.getvalue()
+        output.truncate(0)
+        output.seek(0)
+
+        for row in reader:
+            for col in columns_to_scrub:
+                if col in row and row[col]:
+                    row[col] = self.scrub_text(row[col], replacement_style=replacement_style)
+            writer.writerow(row)
+            yield output.getvalue()
+            output.truncate(0)
+            output.seek(0)
 
     def extract_entities(self, text: str) -> Dict[str, List[str]]:
         """
