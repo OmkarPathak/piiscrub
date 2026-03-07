@@ -41,6 +41,7 @@ def main():
     group = parent_parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--text", type=str, help="Raw text string to process")
     group.add_argument("--file", type=str, help="Path to text file to process")
+    group.add_argument("--dir", type=str, help="Path to directory to process")
     parent_parser.add_argument("--entities", type=str, nargs="+", help="Specific entities to target (e.g., EMAIL CREDIT_CARD)")
     parent_parser.add_argument("--allowlist", type=str, nargs="+", help="Specific strings to bypass scrubbing (e.g., support@example.com)")
     parent_parser.add_argument("--custom-pattern", nargs=2, action="append", metavar=("NAME", "REGEX"), help="Inject a custom regex pattern. Can be used multiple times.")
@@ -51,6 +52,7 @@ def main():
     parent_parser.add_argument("--profile", type=str, help="Compliance profile to use (e.g., pci-dss, hipaa, gdpr, strict)")
     parent_parser.add_argument("--json-key", type=str, nargs="+", help="Specific JSON keys to target for scrubbing.")
     parent_parser.add_argument("--csv-column", type=str, nargs="+", help="Specific CSV columns to target for scrubbing.")
+    parent_parser.add_argument("--recursive", "-r", action="store_true", help="Process the directory recursively.")
 
     # Extract subcommand
     parser_extract = subparsers.add_parser("extract", parents=[parent_parser], help="Extract PII entities from text")
@@ -99,76 +101,57 @@ def main():
         custom_patterns=custom_patterns_dict if custom_patterns_dict else None
     )
 
-    if (args.stream or parallel) and not args.file:
-        print("Error: --stream or --parallel requires --file.", file=sys.stderr)
+    if (args.stream or args.parallel) and not (args.file or args.dir):
+        print("Error: --stream or --parallel requires --file or --dir.", file=sys.stderr)
         sys.exit(1)
 
     start_time = time.time()
-    total_lines = 0
-
-    if parallel and args.command == "scrub":
-        output_path = args.output or (args.file + ".scrubbed")
-        print(f"Processing in parallel... saving to {output_path}")
-        cs.scrub_file_parallel(args.file, output_path, replacement_style=style)
-        # We can count lines by reading the file or getting it from parallel scrub (if we update it)
-        # For now, let's keep it simple and just report execution time and entities
-        execution_time = time.time() - start_time
-        if args.report:
-            report = {
-                "command": args.command,
-                "execution_time_seconds": round(execution_time, 4),
-                "entities_redacted": cs.get_stats(),
-                "style": style
-            }
-            with open(args.report, "w", encoding="utf-8") as f_rep:
-                json.dump(report, f_rep, indent=4)
-        return
-
-    if args.stream:
-        # Streaming logic for files
-        try:
-            with open(args.file, "r", encoding="utf-8") as f:
-                if args.command == "extract":
-                    results = cs.extract_stream(f)
-                    print(json.dumps(results, indent=2))
-                elif args.command == "scrub":
-                    for scrubbed_line in cs.scrub_stream(f, replacement_style=style):
-                        total_lines += 1
-                        if args.output:
-                            with open(args.output, "a", encoding="utf-8") as f_out:
-                                f_out.write(scrubbed_line)
-                        else:
-                            sys.stdout.write(scrubbed_line)
-        except IOError as e:
-            print(f"Error reading file {args.file}: {e}", file=sys.stderr)
+    if args.dir:
+        if not os.path.isdir(args.dir):
+            print(f"Error: {args.dir} is not a directory.", file=sys.stderr)
             sys.exit(1)
+        
+        output_dir = getattr(args, "output", None)
+        if not output_dir and args.command == "scrub":
+            output_dir = args.dir + "_scrubbed"
+            print(f"No output directory specified. Saving scrubbed files to: {output_dir}")
+        
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        files_to_process = []
+        if args.recursive:
+            for root, _, files in os.walk(args.dir):
+                for f in files:
+                    files_to_process.append(os.path.join(root, f))
+        else:
+            for f in os.listdir(args.dir):
+                full_path = os.path.join(args.dir, f)
+                if os.path.isfile(full_path):
+                    files_to_process.append(full_path)
+
+        for f_path in files_to_process:
+            rel_path = os.path.relpath(f_path, args.dir)
+            f_out = os.path.join(output_dir, rel_path) if output_dir else None
+            if f_out:
+                os.makedirs(os.path.dirname(f_out), exist_ok=True)
+            
+            print(f"Processing {rel_path}...")
+            # Reuse file processing logic or call a function
+            _process_file_internal(cs, args, f_path, f_out, style)
+    
+    elif args.file:
+        _process_file_internal(cs, args, args.file, args.output, style)
     else:
-        # Traditional in-memory logic
+        # Traditional in-memory logic for --text
         text = get_text_from_args(args)
         total_lines = len(text.splitlines())
         
         if args.command == "extract":
             results = cs.extract_entities(text)
             print(json.dumps(results, indent=2))
-            
         elif args.command == "scrub":
-            # Detect file type for structured scrubbing
-            file_ext = os.path.splitext(args.file)[1].lower() if args.file else None
-            
-            if file_ext == ".json" and args.json_key:
-                try:
-                    data = json.loads(text)
-                    scrubbed_data = cs.scrub_json(data, keys_to_scrub=args.json_key, replacement_style=style)
-                    result = json.dumps(scrubbed_data, indent=2)
-                except json.JSONDecodeError as e:
-                    print(f"Error decoding JSON: {e}", file=sys.stderr)
-                    sys.exit(1)
-            elif file_ext == ".csv" and args.csv_column:
-                f_iter = text.splitlines()
-                result = "".join(cs.scrub_csv(f_iter, columns_to_scrub=args.csv_column, replacement_style=style))
-            else:
-                result = cs.scrub_text(text, replacement_style=style)
-
+            result = cs.scrub_text(text, replacement_style=style)
             if args.output:
                 with open(args.output, "w", encoding="utf-8") as f_out:
                     f_out.write(result)
@@ -179,7 +162,6 @@ def main():
     if args.report:
         report = {
             "command": args.command,
-            "total_lines_processed": total_lines,
             "execution_time_seconds": round(execution_time, 4),
             "entities_found" if args.command == "extract" else "entities_redacted": cs.get_stats(),
         }
@@ -188,6 +170,59 @@ def main():
             
         with open(args.report, "w", encoding="utf-8") as f_rep:
             json.dump(report, f_rep, indent=4)
+
+def _process_file_internal(cs, args, input_file, output_file, style):
+    """Internal helper to process a single file."""
+    file_ext = os.path.splitext(input_file)[1].lower() if input_file else None
+    
+    if args.parallel and args.command == "scrub":
+        out_path = output_file or (input_file + ".scrubbed")
+        cs.scrub_file_parallel(input_file, out_path, replacement_style=style)
+        return
+
+    try:
+        if args.stream:
+            with open(input_file, "r", encoding="utf-8") as f:
+                if args.command == "extract":
+                    results = cs.extract_stream(f)
+                    print(json.dumps(results, indent=2))
+                elif args.command == "scrub":
+                    if output_file:
+                        with open(output_file, "w", encoding="utf-8") as f_out:
+                            for scrubbed_line in cs.scrub_stream(f, replacement_style=style):
+                                f_out.write(scrubbed_line)
+                    else:
+                        for scrubbed_line in cs.scrub_stream(f, replacement_style=style):
+                            sys.stdout.write(scrubbed_line)
+        else:
+            with open(input_file, "r", encoding="utf-8") as f:
+                text = f.read()
+
+            if args.command == "extract":
+                results = cs.extract_entities(text)
+                print(json.dumps(results, indent=2))
+            elif args.command == "scrub":
+                if file_ext == ".json" and args.json_key:
+                    try:
+                        data = json.loads(text)
+                        scrubbed_data = cs.scrub_json(data, keys_to_scrub=args.json_key, replacement_style=style)
+                        result = json.dumps(scrubbed_data, indent=2)
+                    except json.JSONDecodeError as e:
+                        print(f"Error decoding JSON in {input_file}: {e}", file=sys.stderr)
+                        return
+                elif file_ext == ".csv" and args.csv_column:
+                    f_iter = text.splitlines()
+                    result = "".join(cs.scrub_csv(f_iter, columns_to_scrub=args.csv_column, replacement_style=style))
+                else:
+                    result = cs.scrub_text(text, replacement_style=style)
+
+                if output_file:
+                    with open(output_file, "w", encoding="utf-8") as f_out:
+                        f_out.write(result)
+                else:
+                    print(result)
+    except IOError as e:
+        print(f"Error processing file {input_file}: {e}", file=sys.stderr)
 
 if __name__ == "__main__":
     main()

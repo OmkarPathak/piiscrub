@@ -31,7 +31,7 @@ A blazing-fast, lightweight Python library and CLI tool designed to scrub Person
 - **India Specific:**
   - `IN_AADHAAR` (12 digits, cannot start with 0 or 1)
   - `IN_PAN` (5 uppercase letters, 4 digits, 1 uppercase letter)
-- **Secrets & Credentials (V2):**
+- **Secrets & Credentials:**
   - `AWS_ACCESS_KEY`
   - `GITHUB_TOKEN`
   - `RSA_PRIVATE_KEY`
@@ -146,6 +146,17 @@ piiscrub scrub --file data.json --json-key email secret
 
 # Scrub only specific columns in a CSV file
 piiscrub scrub --file data.csv --csv-column phone email
+
+#### 6. Directory Batch Processing
+Process all files within a directory at once. By default, it saves scrubbed files to a new directory with the `_scrubbed` suffix.
+
+```bash
+# Scrub all files in a directory (shallow)
+piiscrub scrub --dir ./input_logs --output ./cleaned_logs
+
+# Scrub all files recursively and preserve folder structure
+piiscrub scrub --dir ./dataset --recursive --output ./cleaned_dataset
+```
 ```
 
 ### Stream Processing
